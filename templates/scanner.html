@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Scan | PgConf Check-in</title>
+    <script src="/static/qr-scanner.umd.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        #video-container { width: 100%; margin: 20px 0; }
+        #qr-video { width: 100%; border: 2px solid #333; }
+        #location-select { padding: 8px; margin: 10px 0; width: 100%; }
+        #cam-qr-result { padding: 10px; background: #f0f0f0; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>PgConf Check-in</h1>
+    <div style="float: right;"> {{ session['username'] }} • <a href="/logout">Logout</a> </div>
+
+    <input type="hidden" id="clip" value=""/>
+    <select id="location-select">
+        <option value="Conference Hall">Conference Hall</option>
+        <option value="Canteen">Canteen</option>
+        <option value="Lobby">Lobby</option>
+        <option value="Workshop Room">Workshop Room</option>
+    </select>
+
+    <div id="video-container">
+        <video id="qr-video"></video>
+    </div>
+
+    <div id="cam-qr-result">Nothing Detected!</div>
+
+    <script>
+        const video = document.getElementById('qr-video');
+        const locationSelect = document.getElementById('location-select');
+        const camQrResult = document.getElementById('cam-qr-result');
+        const clip = document.getElementById('clip');
+        let resultTimeout;
+        var lastResult = null;
+
+        async function processResult(result) {
+            if (!result || !locationSelect.value) return;
+
+            // avoid duplicate processing of the same QR code immediately
+            const attendee = result.data;
+            if (attendee === lastResult) return;
+            lastResult = attendee;
+
+            try{navigator.vibrate(500);
+            }catch(e){}
+            try{
+                navigator.clipboard.writeText(attendee);
+            }catch(e){}
+            try{
+                clip.type = 'text';
+                clip.value = attendee;
+                clip.select();
+                document.execCommand('copy');
+                clip.type = 'hidden';
+            }catch(e){}
+            const location = locationSelect.value;
+
+            try {
+                const response = await fetch('/api/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ attendee: attendee, location })
+                });
+
+                if (response.ok) {
+                    camQrResult.innerText = `${attendee}`;
+                    camQrResult.style.background = '#d4edda';
+                } else {
+                    window.location.reload();
+                    throw new Error('Server error');
+                }
+            } catch (error) {
+                camQrResult.innerText = `Network Error: ${error.message}`;
+                camQrResult.style.background = '#f8d7da';
+            }
+
+            // Reset after 5 seconds
+            clearTimeout(resultTimeout);
+            resultTimeout = setTimeout(() => {
+                lastResult = null;
+                camQrResult.innerText = 'Scan a QR code to check in';
+                camQrResult.style.background = '#f0f0f0';
+            }, 5000);
+        }
+
+        const qrScanner = new QrScanner(
+            video,
+            result => processResult(result),
+            {
+                highlightScanRegion: true,
+                highlightCodeOutline: true,
+            }
+        );
+
+        qrScanner.start();
+    </script>
+</body>
+</html>

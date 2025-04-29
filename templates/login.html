@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login | PgConf Check-in</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 400px; margin: 50px auto; }
+        form { display: flex; flex-direction: column; gap: 15px; }
+        input { padding: 8px; }
+        button { padding: 10px; background: #007bff; color: white; border: none; }
+    </style>
+</head>
+<body>
+    <h1>Login | PgConf Nepal 2025 Check-in System</h1>
+    <form action="/login" method="POST">
+        <p style="color: red;">{{ message }}</p>
+        <input type="text" name="username" placeholder="Username" required>
+        <input type="password" name="password" placeholder="Password" required>
+        <button type="submit">Login</button>
+    </form>
+</body>
+</html>
