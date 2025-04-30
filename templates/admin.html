@@ -12,18 +12,38 @@
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
         th { background-color: #f2f2f2; }
+        .controls { margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 5px; }
+        .control-group { margin-bottom: 10px; }
+        label { margin-right: 10px; }
+        select, input, button { padding: 5px; }
     </style>
 </head>
 <body>
     <h1>Admin Panel</h1>
     <a href="/logout" style="float: right;">Logout</a>
 
+    <div class="controls">
+        <div class="control-group">
+            <label for="userSelect">Select Attendee:</label>
+            <select id="userSelect">
+                <option value="">Loading attendees...</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="timeFilter">Filter by Time:</label>
+            <input type="datetime-local" id="timeFilter">
+            <button onclick="applyTimeFilter()">Apply</button>
+            <button onclick="clearFilters()">Clear Filters</button>
+        </div>
+    </div>
+
     <div class="chart-container">
         <div id="movementChart" class="chart"></div>
         <div id="locationChart" class="chart"></div>
     </div>
 
-    <h2>Recent Check-Ins</h2>
+    <h2>Check-Ins</h2>
     <table id="checkinsTable">
         <thead>
             <tr>
@@ -37,58 +57,129 @@
     </table>
 
     <h2>User Management</h2>
-<form action="/admin/add_user" method="POST" style="margin-bottom: 20px;">
-    <input type="text" name="username" placeholder="New username" required>
-    <input type="password" name="password" placeholder="Password" required>
-    <button type="submit">Add User</button>
-</form>
+    <form action="/admin/add_user" method="POST" style="margin-bottom: 20px;">
+        <input type="text" name="username" placeholder="New username" required>
+        <input type="password" name="password" placeholder="Password" required>
+        <button type="submit">Add User</button>
+    </form>
 
-<table>
-    <thead>
-        <tr>
-            <th>Username</th>
-            <th>Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for user in all_users %}
-        <tr>
-            <td>{{ user.username }}</td>
-            <td>
-                <form action="/admin/delete_user/{{ user.username }}" method="POST"
-                      onsubmit="return confirm('Delete this user?')" style="display: inline;">
-                    <button type="submit">Delete</button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+    <table>
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in all_users %}
+            <tr>
+                <td>{{ user.username }}</td>
+                <td>
+                    {% if user.username != 'admin' %}
+                    <form action="/admin/delete_user/{{ user.username }}" method="POST"
+                          onsubmit="return confirm('Delete this user?')" style="display: inline;">
+                        <button type="submit">Delete</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
     <script>
+        let allCheckins = [];
+        let filteredCheckins = [];
+
         async function loadData() {
             const response = await fetch('/api/admin/checkins');
-            const data = await response.json();
+            allCheckins = await response.json();
+            filteredCheckins = [...allCheckins];
 
-            // Update table
+            updateAttendeeDropdown();
+            updateCharts();
+            updateTable();
+        }
+
+        function updateAttendeeDropdown() {
+            const userSelect = document.getElementById('userSelect');
+            const uniqueAttendees = [...new Set(allCheckins.map(item => item.attendee))];
+
+            userSelect.innerHTML = '<option value="">All Attendees</option>' +
+                uniqueAttendees.map(attendee =>
+                    `<option value="${attendee}">${attendee}</option>`
+                ).join('');
+        }
+
+        function applyTimeFilter() {
+            const timeFilter = document.getElementById('timeFilter').value;
+            const selectedAttendee = document.getElementById('userSelect').value;
+
+            filteredCheckins = allCheckins.filter(item => {
+                let matches = true;
+
+                if (selectedAttendee) {
+                    matches = matches && (item.attendee === selectedAttendee);
+                }
+
+                if (timeFilter) {
+                    const filterTime = new Date(timeFilter).getTime();
+                    const checkinTime = new Date(item.time).getTime();
+                    // Filter for check-ins within 30 minutes of selected time
+                    matches = matches && (Math.abs(checkinTime - filterTime) <= (30 * 60 * 1000));
+                }
+
+                return matches;
+            });
+
+            updateCharts();
+            updateTable();
+        }
+
+        function clearFilters() {
+            document.getElementById('userSelect').value = '';
+            document.getElementById('timeFilter').value = '';
+            filteredCheckins = [...allCheckins];
+            updateCharts();
+            updateTable();
+        }
+
+        function updateTable() {
             const tableBody = document.querySelector('#checkinsTable tbody');
-            tableBody.innerHTML = data.map(item => `
-                <tr>
-                    <td>${item.username}</td>
-                    <td>${item.attendee}</td>
-                    <td>${item.location}</td>
-                    <td>${new Date(item.time).toLocaleString()}</td>
-                </tr>
-            `).join('');
+            tableBody.innerHTML = filteredCheckins
+                .sort((a, b) => new Date(b.time) - new Date(a.time))
+                .map(item => `
+                    <tr>
+                        <td>${item.username}</td>
+                        <td>${item.attendee}</td>
+                        <td>${item.location}</td>
+                        <td>${new Date(item.time).toLocaleString()}</td>
+                    </tr>
+                `).join('');
+        }
 
-            // Prepare data for charts
-            const locations = {};
+        function updateCharts() {
+            // Prepare data for location chart (pie chart)
+            const locationCounts = {};
+            filteredCheckins.forEach(item => {
+                locationCounts[item.location] = (locationCounts[item.location] || 0) + 1;
+            });
+
+            // Draw location chart
+            Plotly.newPlot('locationChart', [{
+                values: Object.values(locationCounts),
+                labels: Object.keys(locationCounts),
+                type: 'pie',
+                textinfo: 'label+value+percent',
+                insidetextorientation: 'radial'
+            }], {
+                title: 'Distribution by Location',
+                showlegend: false
+            });
+
+            // Prepare data for movement chart
             const userMovements = {};
-
-            data.forEach(item => {
-                // Count by location
-                locations[item.location] = (locations[item.location] || 0) + 1;
-
-                // Track user movement
+            filteredCheckins.forEach(item => {
                 if (!userMovements[item.attendee]) {
                     userMovements[item.attendee] = [];
                 }
@@ -98,29 +189,34 @@
                 });
             });
 
-            // Draw location chart
-            Plotly.newPlot('locationChart', [{
-                values: Object.values(locations),
-                labels: Object.keys(locations),
-                type: 'pie'
-            }], { title: 'Current Distribution by Location' });
+            // Draw movement chart for selected user or first user if none selected
+            const selectedAttendee = document.getElementById('userSelect').value;
+            const attendeeToDisplay = selectedAttendee || Object.keys(userMovements)[0];
 
-            // Draw movement chart (example for first user)
-            const sampleUser = Object.keys(userMovements)[0];
-            if (sampleUser) {
-                const movementData = userMovements[sampleUser]
+            if (attendeeToDisplay && userMovements[attendeeToDisplay]) {
+                const movementData = userMovements[attendeeToDisplay]
                     .sort((a, b) => a.time - b.time);
 
                 Plotly.newPlot('movementChart', [{
                     x: movementData.map(m => m.time),
                     y: movementData.map(m => m.location),
                     mode: 'lines+markers',
-                    type: 'scatter'
-                }], { title: `Movement of ${sampleUser}` });
+                    type: 'scatter',
+                    line: { shape: 'hv' },
+                    marker: { size: 12 }
+                }], {
+                    title: `Movement of ${attendeeToDisplay}`,
+                    xaxis: { title: 'Time' },
+                    yaxis: { title: 'Location' }
+                });
+            } else {
+                // Clear the chart if no data
+                Plotly.purge('movementChart');
             }
         }
 
-        // Load data initially and every 30 seconds
+        // Initialize
+        document.getElementById('userSelect').addEventListener('change', applyTimeFilter);
         loadData();
         setInterval(loadData, 30000);
     </script>
