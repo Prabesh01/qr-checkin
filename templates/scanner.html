@@ -15,7 +15,7 @@
 </head>
 <body>
     <h1>PgConf Check-in</h1>
-    <div style="float: right;"> {{ session['username'] }} • <a href="/logout">Logout</a> </div>
+    <div style="float: right;"> {% if session['username'] == 'admin' %}<a href="/admin">admin</a>{% else %}{{ session['username'] }}{% endif %} • <a href="/logout">Logout</a> </div>
 
     <input type="hidden" id="clip" value=""/>
     <select id="location-select">
